@@ -90,9 +90,8 @@ Tabla de listas de errores `except Exception` genéricos que hay que implemetar 
 
 
 ## Manejo de errores globales en app.py ##
-Añadir al inicio de app.py (linea 6 y 7):
+Añadir al inicio de app.py (linea ~33):
 ```python
-from API.functions.logger import get_logger
 from werkzeug.exceptions import HTTPException
 ```
 

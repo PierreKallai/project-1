@@ -1,3 +1,6 @@
+Catálogo Maestro de Errores de la API
+Este documento detalla todos los errores posibles, incluyendo su ubicación exacta en el código para facilitar la depuración.
+
 1. Módulo de Identidad (Auth & Cognito)
 Errores de Validación y Entrada
 Status: 400
@@ -219,7 +222,7 @@ Location: API/routes/stripe/create_and_check_payment.py (Línea ~215)
 
 Description: Fallo al crear el PaymentIntent. Actualmente capturado como Exception genérica.
 
-Casuistry: Error de conexión, tarjeta rechazada o claves inválidas.
+Casuistry: Error de conexión o claves inválidas.
 
 ImportantData: ['stripe_error']
 
@@ -286,7 +289,7 @@ Casuistry: Usuario nuevo sin historial.
 ImportantData: ['s3_path']
 
 5. Auditoría de Mejoras (Errores No Contemplados)
-Esta sección lista los errores que actualmente caen en bloques except Exception genéricos en el código pero que están identificados para futura implementación específica.
+Esta sección lista los errores que actualmente caen en bloques except Exception genéricos en el código pero que están identificados para futura implementación.
 
 Archivo: API/routes/stripe/create_and_check_payment.py (Línea ~215)
 Se recomienda sustituir el except Exception por:

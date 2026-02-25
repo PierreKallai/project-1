@@ -97,6 +97,7 @@ from API.functions.errors import AppError
 ```
 Correción habia 2 veces reminders:
 ```python from API.routes.admin import info_users, stats, reminders```
+## ##
 https://api.tuweb.com/admin/logs y ver el archivo de texto sin usar la consola. 
 ```python
 @app.route('/admin/logs', methods=['GET'])

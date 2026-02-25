@@ -90,24 +90,38 @@ Tabla de listas de errores `except Exception` genéricos que hay que implemetar 
 
 
 ## Manejo de errores globales en app.py ##
-Añadir al inicio de app.py (linea ~33):
+Añadir al inicio de app.py:
 ```python
 from werkzeug.exceptions import HTTPException
+from API.functions.errors import AppError
 ```
-
-Añadir al final de app.py (linea ~305):
+Correción habia 2 veces reminders:
+```python from API.routes.admin import info_users, stats, reminders```
+https://api.tuweb.com/admin/logs y ver el archivo de texto sin usar la consola. 
 ```python
-## Manejador de errores global ##
+@app.route('/admin/logs', methods=['GET'])
+@require_auth_hybrid
+def get_server_logs():
+```
+He sustituido/añadido el final del archivo para conectar la clase AppError y el Logger.
+
+Añadir al final de app.py (linea ~330):
+```python
+## Manejador de errores centralizados ##
+@app.errorhandler(AppError)
+def handle_app_error(e):
+    # Cuando alguien lance un AppError, Flask devuelve la respuesta JSON bonita
+    return e.to_response()
+
+## Manejador de errores globales#
 @app.errorhandler(Exception)
 def handle_exception(e):
-    # Si es un error HTTP normal (como 404), dejarlo pasar
     if isinstance(e, HTTPException):
         return e
 
     # GRABAR EL ERROR EN EL ARCHIVO DE LOGS
     logger.error(f"ERROR CRÍTICO NO CONTROLADO: {str(e)}", exc_info=True)
 
-    # Devolver una respuesta JSON limpia al usuario
     return jsonify({
         "status": "error",
         "message": "Internal Server Error",

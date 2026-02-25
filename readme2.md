@@ -207,3 +207,75 @@ Este documento detalla **todos** los errores posibles en la ejecución de la API
 * **Description:** Cualquier excepción no controlada por los casos anteriores.
 * **Casuistry:** Bugs de código, librerías faltantes, errores de sintaxis en runtime.
 * **ImportantData:** `['stack_trace', 'timestamp']`
+AUDITORÍA DE ERRORES NO CONTEMPLADOS (AÑADIR AL CÓDIGO)
+
+Este documento lista los errores específicos que actualmente se capturan como "Error Genérico" (Exception) pero que deberían tener su propia gestión (try/except) para mejorar la calidad de la API.
+
+---
+
+ARCHIVO: API/routes/stripe/create_and_check_payment.py
+------------------------------------------------------
+UBICACIÓN ACTUAL: Función create_payment_intent() - Línea aprox 215
+PROBLEMA: Se usa un 'except Exception as e' genérico que oculta el tipo de error de pago.
+CAMBIO SUGERIDO: Añadir capturas específicas de Stripe antes del genérico.
+
+NUEVOS ERRORES A AÑADIR:
+1. stripe.error.CardError
+   - Descripción: Tarjeta rechazada (sin fondos, caducada).
+   - Acción: Devolver 402 Payment Required en lugar de 500.
+   
+2. stripe.error.RateLimitError
+   - Descripción: Demasiadas peticiones a Stripe.
+   - Acción: Devolver 429 Too Many Requests.
+
+3. stripe.error.InvalidRequestError
+   - Descripción: Parámetros inválidos enviados a Stripe.
+   - Acción: Devolver 400 Bad Request.
+
+---
+
+ARCHIVO: API/routes/onoratoFarm/get_voice.py
+------------------------------------------------------
+UBICACIÓN ACTUAL: Función get_voice() - Línea aprox 335
+PROBLEMA: El 'except Exception' captura fallos de conexión igual que fallos de lógica.
+
+NUEVOS ERRORES A AÑADIR:
+1. openai.APITimeoutError
+   - Descripción: La API de OpenAI tarda mucho en responder.
+   - Acción: Devolver 504 Gateway Timeout.
+
+2. openai.RateLimitError
+   - Descripción: Se ha excedido la cuota de la API Key de OpenAI.
+   - Acción: Devolver 429 Too Many Requests y alertar al admin.
+
+3. openai.BadRequestError
+   - Descripción: El texto enviado es demasiado largo o inválido.
+   - Acción: Devolver 400 Bad Request.
+
+---
+
+ARCHIVO: API/functions/buckets.py
+------------------------------------------------------
+UBICACIÓN ACTUAL: Función get_json_from_bucket() - Línea aprox 112
+PROBLEMA: Se captura 'Exception' al final.
+
+NUEVOS ERRORES A AÑADIR:
+1. botocore.exceptions.EndpointConnectionError
+   - Descripción: No se puede conectar con AWS S3 (fallo de red/DNS).
+   - Acción: Devolver 503 Service Unavailable.
+
+---
+
+ARCHIVO: API/routes/user_identity/login.py
+------------------------------------------------------
+UBICACIÓN ACTUAL: Función login() - Bloque 'try/except' principal
+PROBLEMA: Algunos errores de seguridad de Cognito caen en el genérico.
+
+NUEVOS ERRORES A AÑADIR:
+1. client.exceptions.TooManyRequestsException
+   - Descripción: Bloqueo de seguridad de AWS por intentos fallidos.
+   - Acción: Devolver 429 Too Many Requests (Evita que el usuario siga intentando).
+
+2. client.exceptions.PasswordResetRequiredException
+   - Descripción: El usuario necesita resetear contraseña obligatoriamente.
+   - Acción: Devolver 405 Method Not Allowed (con mensaje específico).

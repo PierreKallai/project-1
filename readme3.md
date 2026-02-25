@@ -128,3 +128,26 @@ def handle_exception(e):
         "error": str(e) 
     }), 500
 ```
+
+## Cambios que falta por hacer##
+Añadir errores.py
+Cambiar en todosl os archivos el manejo de errores, ejemplo:
+de 
+```python
+
+if not email:
+       logger.error("Falta email") 
+    return jsonify({"error": "Falta email"}), 400
+```
+Cambiarlo a :
+añadir include
+```python
+from API.functions.errors import AppError
+```
+substituir codigo:
+```python
+if not email:
+     raise AppError('MISSING_FIELDS')
+```
+
+

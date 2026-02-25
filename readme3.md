@@ -1,4 +1,4 @@
-#Errores de la API
+# Errores de la API #
 
 
 
@@ -97,14 +97,13 @@ from API.functions.errors import AppError
 ```
 Correción habia 2 veces reminders:
 ```python from API.routes.admin import info_users, stats, reminders```
-## ##
-https://api.tuweb.com/admin/logs y ver el archivo de texto sin usar la consola. 
+https://onoratoai.com/admin/logs y ver el archivo de texto sin usar la consola. 
 ```python
 @app.route('/admin/logs', methods=['GET'])
 @require_auth_hybrid
 def get_server_logs():
 ```
-He sustituido/añadido el final del archivo para conectar la clase AppError y el Logger.
+Final del archivo para conectar clase AppError y el Logger.
 
 Añadir al final de app.py (linea ~330):
 ```python

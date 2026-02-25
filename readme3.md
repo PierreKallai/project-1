@@ -9,7 +9,7 @@ Este documento detalla **todos** los errores posibles en la ejecución de la API
 **Archivos principales:** `API/routes/user_identity/`
 
 ### Errores de Validación y Lógica
-| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Archivo: Línea) |
+| Estado | Nombre | Descripción | Causa | Data Importante | archivo |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **400** | `MissingRequiredFields` | El cuerpo de la petición no contiene los campos necesarios. | Envío de JSON incompleto desde el frontend. | `['missing_keys']` | `register.py`: ~29 <br> `login.py`: ~40 |
 | **400** | `InvalidEmailFormat` | El email no cumple con la estructura regex estándar. | Error tipográfico en el email (`^[\w\.-]+@[\w\.-]+\.\w+$`). | `['email']` | `login.py`: ~43 <br> `register.py`: ~31 |

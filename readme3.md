@@ -87,3 +87,31 @@ Tabla de listas de errores `except Exception` genéricos que hay que implemetar 
 | **429** | `client.exceptions.TooManyRequests` | Bloqueo de seguridad AWS por intentos masivos. | `login.py` (Global) |
 | **405** | `client.exceptions.PasswordResetRequired` | El usuario necesita resetear contraseña obligatoriamente. | `login.py` (Global) |
 | **503** | `botocore.exceptions.EndpointConnectionError` | Fallo de red al conectar con S3. | `buckets.py`: ~112 |
+
+
+## Manejo de errores globales en app.py ##
+Añadir al inicio de app.py (linia 6 y 7):
+```python
+from API.functions.logger import get_logger
+from werkzeug.exceptions import HTTPException
+```
+
+Añadir al final de app.py (linea ~305):
+```python
+## Manejador de errores global ##
+@app.errorhandler(Exception)
+def handle_exception(e):
+    # Si es un error HTTP normal (como 404), dejarlo pasar
+    if isinstance(e, HTTPException):
+        return e
+
+    # GRABAR EL ERROR EN EL ARCHIVO DE LOGS
+    logger.error(f"ERROR CRÍTICO NO CONTROLADO: {str(e)}", exc_info=True)
+
+    # Devolver una respuesta JSON limpia al usuario
+    return jsonify({
+        "status": "error",
+        "message": "Internal Server Error",
+        "error": str(e) 
+    }), 500
+```

@@ -1,392 +1,88 @@
-Aquí tienes el Catálogo Maestro de Errores con el formato exacto que has solicitado, integrando la ubicación de cada error en el campo "Otra info".
+# Catálogo Maestro de Errores de la API
 
-Copia y pega este contenido en tu README.md.
+Este documento detalla **todos** los errores posibles en la ejecución de la API. Se presenta en formato tabular para una rápida consulta de códigos de estado, causas y ubicación exacta en el código.
 
-Catálogo Maestro de Errores de la API
-Este documento detalla todos los errores posibles en la ejecución de la API. Incluye la ubicación exacta en el código para facilitar la depuración.
+---
 
-1. Módulo de Identidad (Auth & Cognito)
-Errores de Validación y Entrada
-Status: 400
+## 1. Módulo de Identidad (Auth & Cognito)
 
-Nombre: MissingRequiredFields
+**Archivos principales:** `API/routes/user_identity/`
 
-Descripción: El cuerpo de la petición no contiene los campos necesarios (email, password, etc.).
+### Errores de Validación y Lógica
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Archivo: Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **400** | `MissingRequiredFields` | El cuerpo de la petición no contiene los campos necesarios. | Envío de JSON incompleto desde el frontend. | `['missing_keys']` | `register.py`: ~29 <br> `login.py`: ~40 |
+| **400** | `InvalidEmailFormat` | El email no cumple con la estructura regex estándar. | Error tipográfico en el email (`^[\w\.-]+@[\w\.-]+\.\w+$`). | `['email']` | `login.py`: ~43 <br> `register.py`: ~31 |
+| **403** | `NoInvitationFound` | El email no está en la tabla de invitaciones. | Usuario no invitado intentando registrarse (Sistema cerrado). | `['email']` | `register.py`: ~42 |
+| **409** | `UserAlreadyExistsLocal` | El email ya existe en la base de datos MySQL local. | Intento de duplicar cuenta existente en local. | `['email']` | `register.py`: ~35 |
 
-Causa: Envío de JSON incompleto desde el frontend.
+### Errores de AWS Cognito (Autenticación)
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Archivo: Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **401** | `NotAuthorizedException` | Contraseña incorrecta o usuario no autorizado. | Login fallido por credenciales inválidas. | `['email']` | `login.py`: ~125 |
+| **404** | `UserNotFoundException` | El usuario no existe en el User Pool de AWS. | Login con email erróneo o desincronización BD/AWS. | `['email']` | `login.py`: ~127 |
+| **403** | `UserNotConfirmedException` | El usuario no ha verificado su email (estado UNCONFIRMED). | Login antes de verificar el código OTP. | `['email']` | `login.py`: ~129 |
+| **405** | `NewPasswordRequired` | El usuario debe cambiar su contraseña obligatoriamente. | Primer login de un usuario creado administrativamente. | `['session']` | `login.py`: ~95 |
+| **400** | `InvalidPasswordException` | La contraseña no cumple la política de seguridad. | Registro con pass débil (Faltan mayúsculas, números, símbolos). | `['requirements']` | `register.py`: ~68 |
+| **409** | `UsernameExistsException` | El email ya existe en AWS Cognito. | Usuario existe en la nube pero quizás no en local. | `['email']` | `register.py`: ~66 |
 
-Data_importante: ['missing_keys']
+### Recuperación y Tokens
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Archivo: Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **400** | `CodeMismatchException` | El código OTP de recuperación es incorrecto. | Error al teclear el código recibido por email. | `['code']` | `recover_password.py`: ~211 |
+| **400** | `LimitExceededException` | Excedido el límite de intentos de envío de códigos. | Spam o demasiados reintentos en poco tiempo. | `['email']` | `recover_password.py`: ~193 |
+| **401** | `TokenExpiredError` | El token JWT ha caducado. | Sesión larga sin refrescar. | `['expired_at']` | `require_auth_hybrid.py`: ~108 |
+| **401** | `InvalidTokenSignature` | La firma del token no coincide con la clave pública. | Token manipulado, corrupto o incorrecto. | `['token']` | `require_auth_hybrid.py`: ~110 |
 
-Otra info: API/routes/user_identity/register.py (Línea ~29) / login.py (Línea ~40)
+---
 
-Status: 400
+## 2. Módulo de Pagos (Stripe)
 
-Nombre: InvalidEmailFormat
+**Archivo:** `API/routes/stripe/create_and_check_payment.py`
 
-Descripción: El email no cumple con la estructura regex ^[\w\.-]+@[\w\.-]+\.\w+$.
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **400** | `InvalidPaymentData` | Email vacío o nombre demasiado corto (< 3 caracteres). | Validación previa a llamada a Stripe. | `['email', 'name']` | ~55, ~134 |
+| **400** | `QuantityLimitExceeded` | Intento de comprar más de 1 unidad. | Restricción de negocio (1 loro por usuario). | `['quantity']` | ~137 |
+| **400** | `DuplicatePurchase` | El usuario ya tiene una compra finalizada en BD. | Evitar cobros dobles a un mismo usuario. | `['email']` | ~150 |
+| **500** | `PaymentCreationError` | Fallo al crear el PaymentIntent. | Error de conexión o claves inválidas (Capturado como Genérico). | `['stripe_error']` | ~215 |
 
-Causa: Error tipográfico en el email.
+---
 
-Data_importante: ['email']
+## 3. Módulo de IA (OpenAI)
 
-Otra info: API/routes/user_identity/login.py (Línea ~43) / register.py (Línea ~31)
+**Archivo:** `API/routes/onoratoFarm/get_voice.py`
 
-Errores de Lógica de Negocio (Local)
-Status: 403
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **500** | `LLMProcessingError` | Error al procesar/parsear el JSON de respuesta. | La IA devuelve texto plano o formato inválido. | `['openai_res']` | ~280 |
+| **500** | `VoiceGenerationError` | Fallo al generar el audio (TTS). | Error en API de Audio de OpenAI (Timeout/Quota). | `['text_input']` | ~335 |
+| **500** | `AudioFileError` | Error al leer/guardar archivos de audio locales. | Problema de permisos de escritura o disco lleno. | `['file_path']` | ~370 |
 
-Nombre: NoInvitationFound
+---
 
-Descripción: El email no está en la tabla de invitaciones (Sistema cerrado).
+## 4. Módulo de Almacenamiento (S3)
 
-Causa: Usuario no invitado intentando registrarse.
+**Archivo:** `API/functions/buckets.py`
 
-Data_importante: ['email']
+| Estado | Nombre | Descripción | Causa | Data Importante | Ubicación (Línea) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **403** | `NoCredentialsError` | No se encuentran las claves AWS en variables de entorno. | Error de configuración del servidor (`.env`). | `['env_vars']` | ~108 |
+| **200** | `NoSuchKey` | El archivo solicitado no existe (Devuelve lista vacía). | Usuario nuevo sin historial de archivos. | `['s3_path']` | ~112 |
 
-Otra info: API/routes/user_identity/register.py (Línea ~42)
+---
 
-Status: 409
+## 5. Auditoría de Mejoras (Errores Pendientes de Implementar)
 
-Nombre: UserAlreadyExistsLocal
+Esta tabla lista los errores que **actualmente** caen en bloques `except Exception` genéricos en el código, pero que se recomienda implementar específicamente para mejorar la observabilidad.
 
-Descripción: El email ya existe en la base de datos MySQL local.
-
-Causa: Intento de duplicar cuenta existente en local.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/register.py (Línea ~35)
-
-Errores de AWS Cognito (Autenticación)
-Status: 401
-
-Nombre: NotAuthorizedException
-
-Descripción: Contraseña incorrecta o usuario no autorizado.
-
-Causa: Login fallido por credenciales.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/login.py (Línea ~125)
-
-Status: 404
-
-Nombre: UserNotFoundException
-
-Descripción: El usuario no existe en el User Pool de AWS.
-
-Causa: Login con email erróneo o desincronización BD/AWS.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/login.py (Línea ~127)
-
-Status: 403
-
-Nombre: UserNotConfirmedException
-
-Descripción: El usuario no ha verificado su email (estado UNCONFIRMED).
-
-Causa: Login antes de verificar el código OTP.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/login.py (Línea ~129)
-
-Status: 405
-
-Nombre: NewPasswordRequired
-
-Descripción: El usuario debe cambiar su contraseña obligatoriamente.
-
-Causa: Primer login de un usuario creado administrativamente.
-
-Data_importante: ['session']
-
-Otra info: API/routes/user_identity/login.py (Línea ~95)
-
-Status: 400
-
-Nombre: InvalidPasswordException
-
-Descripción: La contraseña no cumple la política de seguridad (Números, Mayúsculas, Símbolos).
-
-Causa: Registro o cambio de contraseña débil.
-
-Data_importante: ['password_requirements']
-
-Otra info: API/routes/user_identity/register.py (Línea ~68)
-
-Status: 409
-
-Nombre: UsernameExistsException
-
-Descripción: El email ya existe en AWS Cognito.
-
-Causa: Usuario existe en la nube pero quizás no en local.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/register.py (Línea ~66)
-
-Errores de Token (Middleware)
-Status: 401
-
-Nombre: TokenExpiredError
-
-Descripción: El JWT ha caducado.
-
-Causa: Sesión larga sin refrescar.
-
-Data_importante: ['expired_at']
-
-Otra info: API/functions/require_auth_hybrid.py (Línea ~108)
-
-Status: 401
-
-Nombre: InvalidTokenSignature
-
-Descripción: La firma del token no coincide con la clave pública.
-
-Causa: Token manipulado o incorrecto.
-
-Data_importante: ['token']
-
-Otra info: API/functions/require_auth_hybrid.py (Línea ~110)
-
-Recuperación de Contraseña
-Status: 400
-
-Nombre: CodeMismatchException
-
-Descripción: El código OTP de recuperación es incorrecto.
-
-Causa: Error al teclear el código recibido por email.
-
-Data_importante: ['confirmation_code']
-
-Otra info: API/routes/user_identity/recover_password.py (Línea ~211)
-
-Status: 400
-
-Nombre: LimitExceededException
-
-Descripción: Excedido el límite de intentos de envío de códigos.
-
-Causa: Spam o demasiados reintentos en poco tiempo.
-
-Data_importante: ['email']
-
-Otra info: API/routes/user_identity/recover_password.py (Línea ~193)
-
-2. Módulo de Pagos (Stripe)
-Validaciones Propias
-Status: 400
-
-Nombre: InvalidPaymentData
-
-Descripción: Email vacío o nombre demasiado corto (< 3 caracteres).
-
-Causa: Validación previa a llamada a Stripe.
-
-Data_importante: ['email', 'name']
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~55 y ~134)
-
-Status: 400
-
-Nombre: QuantityLimitExceeded
-
-Descripción: Intento de comprar más de 1 unidad.
-
-Causa: Restricción de negocio.
-
-Data_importante: ['quantity']
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~137)
-
-Status: 400
-
-Nombre: DuplicatePurchase
-
-Descripción: El usuario ya tiene una compra finalizada en BD.
-
-Causa: Evitar cobros dobles.
-
-Data_importante: ['email']
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~150)
-
-Errores de la API de Stripe
-Status: 500
-
-Nombre: PaymentCreationError (Genérico)
-
-Descripción: Fallo al crear el PaymentIntent. Actualmente capturado como Exception genérica.
-
-Causa: Error de conexión o claves inválidas.
-
-Data_importante: ['stripe_error']
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~215)
-
-3. Módulo de IA (OpenAI)
-Status: 500
-
-Nombre: LLMProcessingError
-
-Descripción: Error al procesar/parsear el JSON de respuesta de OpenAI.
-
-Causa: La IA devuelve texto plano o formato inválido.
-
-Data_importante: ['openai_response']
-
-Otra info: API/routes/onoratoFarm/get_voice.py (Línea ~280)
-
-Status: 500
-
-Nombre: VoiceGenerationError
-
-Descripción: Fallo al generar el audio (TTS).
-
-Causa: Error en API de Audio de OpenAI (Timeout/Quota).
-
-Data_importante: ['text_input']
-
-Otra info: API/routes/onoratoFarm/get_voice.py (Línea ~335)
-
-Status: 500
-
-Nombre: AudioFileError
-
-Descripción: Error al leer/guardar archivos de audio locales.
-
-Causa: Problema de permisos o disco.
-
-Data_importante: ['file_path']
-
-Otra info: API/routes/onoratoFarm/get_voice.py (Línea ~370)
-
-4. Módulo de Almacenamiento (S3)
-Status: 403
-
-Nombre: NoCredentialsError
-
-Descripción: No se encuentran las claves AWS en variables de entorno.
-
-Causa: Error de configuración del servidor.
-
-Data_importante: ['env_vars']
-
-Otra info: API/functions/buckets.py (Línea ~108)
-
-Status: 200 (Devuelve lista vacía)
-
-Nombre: NoSuchKey
-
-Descripción: El archivo solicitado no existe en el bucket.
-
-Causa: Usuario nuevo sin historial.
-
-Data_importante: ['s3_path']
-
-Otra info: API/functions/buckets.py (Línea ~112)
-
-5. Auditoría de Mejoras (Errores No Contemplados)
-Esta sección lista los errores que actualmente caen en bloques except Exception genéricos, pero que se recomienda implementar específicamente en el futuro.
-
-Status: 402
-
-Nombre: stripe.error.CardError
-
-Descripción: Tarjeta rechazada o sin fondos.
-
-Causa: Error de pago en Stripe.
-
-Data_importante: ['stripe_code']
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~215) - Sustituir en create_payment_intent.
-
-Status: 429
-
-Nombre: stripe.error.RateLimitError
-
-Descripción: Demasiadas peticiones a la pasarela de pago.
-
-Causa: Pico de tráfico en Stripe.
-
-Data_importante: N/A
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~215)
-
-Status: 400
-
-Nombre: stripe.error.InvalidRequestError
-
-Descripción: Datos mal formados enviados a Stripe.
-
-Causa: Error de integración.
-
-Data_importante: N/A
-
-Otra info: API/routes/stripe/create_and_check_payment.py (Línea ~215)
-
-Status: 504
-
-Nombre: openai.APITimeoutError
-
-Descripción: La API tarda demasiado en responder.
-
-Causa: Problemas en servidor de OpenAI.
-
-Data_importante: N/A
-
-Otra info: API/routes/onoratoFarm/get_voice.py (Línea ~335)
-
-Status: 429
-
-Nombre: openai.RateLimitError
-
-Descripción: Se ha excedido la cuota de la API Key.
-
-Causa: Límite de uso de OpenAI alcanzado.
-
-Data_importante: N/A
-
-Otra info: API/routes/onoratoFarm/get_voice.py (Línea ~335)
-
-Status: 429
-
-Nombre: client.exceptions.TooManyRequestsException
-
-Descripción: Bloqueo de seguridad por intentos masivos.
-
-Causa: Seguridad de AWS Cognito.
-
-Data_importante: N/A
-
-Otra info: API/routes/user_identity/login.py (Global try/except)
-
-Status: 405
-
-Nombre: client.exceptions.PasswordResetRequiredException
-
-Descripción: El usuario necesita resetear contraseña obligatoriamente.
-
-Causa: Flujo de cambio de password forzoso.
-
-Data_importante: N/A
-
-Otra info: API/routes/user_identity/login.py (Global try/except)
-
-Status: 503
-
-Nombre: botocore.exceptions.EndpointConnectionError
-
-Descripción: Fallo de red al conectar con S3.
-
-Causa: Problema de conectividad del servidor.
-
-Data_importante: N/A
-
-Otra info: API/functions/buckets.py (Línea ~112)
+| Estado Sugerido | Nombre del Error | Descripción | Ubicación Actual (Archivo: Línea) |
+| :--- | :--- | :--- | :--- |
+| **402** | `stripe.error.CardError` | Tarjeta rechazada o sin fondos. | `create_and_check_payment.py`: ~215 |
+| **429** | `stripe.error.RateLimitError` | Demasiadas peticiones a la pasarela de pago. | `create_and_check_payment.py`: ~215 |
+| **400** | `stripe.error.InvalidRequestError` | Datos mal formados enviados a Stripe. | `create_and_check_payment.py`: ~215 |
+| **504** | `openai.APITimeoutError` | La API de OpenAI tarda demasiado en responder. | `get_voice.py`: ~335 |
+| **429** | `openai.RateLimitError` | Se ha excedido la cuota de la API Key de OpenAI. | `get_voice.py`: ~335 |
+| **429** | `client.exceptions.TooManyRequests` | Bloqueo de seguridad AWS por intentos masivos. | `login.py` (Global) |
+| **405** | `client.exceptions.PasswordResetRequired` | El usuario necesita resetear contraseña obligatoriamente. | `login.py` (Global) |
+| **503** | `botocore.exceptions.EndpointConnectionError` | Fallo de red al conectar con S3. | `buckets.py`: ~112 |

@@ -1,95 +1,78 @@
-# README_ERRORES_FRONTEND.md
+# 📘 Arquitectura de Observabilidad y Gestión de Errores - OnoratoAI (v2.0)
 
-Este documento detalla la arquitectura exhaustiva de captura, manejo y renderizado de errores en el Frontend de OnoratoAI. Define cómo las validaciones locales (antes de consumir la API) y las respuestas del servidor se traducen en mensajes y comportamientos específicos en la interfaz de usuario.
-
----
-
-## 1. Autenticación, Registro y Verificación (Auth & Cognito)
-
-**Rutas Principales:** `/login`, `/register`, `/verify/:code`, `/recover`
-
-### 1.1 Validaciones Locales Previas (Pre-Petición HTTP)
-El frontend bloquea peticiones al servidor si no se cumplen estos requisitos.
-
-| Causa / Lógica Local | Clave de Error | Comportamiento UI / Mensaje | Archivo |
-| :--- | :--- | :--- | :--- |
-| Campos vacíos en Login | `emptyFields` | "Los campos están vacíos". Frena el submit. | `Login.jsx` |
-| Email falla Regex (`^[^\s@]+@[^\s@]+\.[^\s@]+$`) | `invalidEmail` | "El formato del correo no es correcto" / "Formato de correo incorrecto". | `Login.jsx` / `Register.jsx` |
-| `password !== confirmPassword` | `passwordsDoNotMatch` | "Las contraseñas no coinciden". | `Register.jsx` |
-| Contraseña `< 9` caracteres | `passwordMinLength` | "La contraseña debe tener al menos 9 caracteres". Check visual (❌/✔️). | `Register.jsx` |
-| Contraseña sin minúsculas | `passwordNeedsLowercase` | "Al menos una letra minúscula". Check visual (❌/✔️). | `Register.jsx` |
-| Contraseña sin mayúsculas | `passwordNeedsUppercase` | "Al menos una letra mayúscula". Check visual (❌/✔️). | `Register.jsx` |
-| Contraseña sin números | `passwordNeedsNumber` | "Al menos un número". Check visual (❌/✔️). | `Register.jsx` |
-| Nombre con menos de 2 palabras (`validateName`) | `nameRequired` | "Debes incluir al menos nombre y primer apellido". | `Register.jsx` |
-| Checkbox de privacidad no marcado | `acceptPolicy` | "Debes aceptar la política de datos". | `Register.jsx` |
-| Preguntas de Onboarding sin responder | `requiredQuestions` | "No has contestado todas las preguntas obligatorias". Frena acceso a `/form`. | `Register.jsx` |
-
-### 1.2 Errores de API (AWS Cognito / Backend)
-Mapeo de respuestas de la API en el manejo de autenticación.
-
-| Código / Excepción Backend | Clave de Error (JSON) | Acción / Comportamiento en UI | Archivo |
-| :--- | :--- | :--- | :--- |
-| **404** / `Email does not exist` | `emailNotExists` | Muestra error y redirige automáticamente a `/register` en 4 segundos. | `Login.jsx` / `RecoverPassword.jsx` |
-| **403** / `User not confirmed` | `accountNotVerified` | Abre Modal (`showVerificationModal`) e inicia *polling* de verificación. | `Login.jsx` |
-| **405** / `New password required` | (Abre componente) | Oculta Login y despliega `<TemporalPassword />` obligatorio. | `Login.jsx` |
-| **401** / `Invalid password` | `incorrectPassword` | Muestra: "Contraseña incorrecta para este usuario". | `Login.jsx` / `Register.jsx` |
-| **409** / `user exists` | `userExists` | "Este email ya está registrado". Redirige al login tras 1.5 seg. | `Register.jsx` |
-| **403** / `no invitation found` | `noInvitationFound` | "No se ha encontrado una invitación para este correo". | `Register.jsx` |
-| `LimitExceededException` | `limitExceeded` | Frena el modal/botón. En `VerifyPage` muestra vista de "Demasiados intentos". | `Login.jsx` / `VerifyPage.jsx` |
-| `Invalid verification code`| `invalidCode` | "Código de recuperación inválido o expirado". | `Login.jsx` / `RecoverPassword.jsx` |
-| Excepción desconocida | `generic` / `unknown` | En verificación muestra: "Error en la verificación... contacta con soporte." | `VerifyPage.jsx` / `Register.jsx` |
+Este documento detalla el ecosistema integral de captura, manejo y reporte de errores en el Frontend de OnoratoAI. Define cómo las validaciones locales y las excepciones del sistema se transforman en datos accionables para el equipo de desarrollo.
 
 ---
 
-## 2. Formularios Dinámicos y Notificaciones
+## 1. Capa de Telemetría Forense (Crítica)
+Esta capa registra fallos inesperados directamente en la base de datos de administración para diagnósticos post-mortem.
 
-**Rutas Principales:** `/form`
-**Componentes:** `FormComponent.jsx`, `NotifyPanel.jsx`
-
-### 2.1 Validaciones Locales y Estados de UI
-| Causa | Clave / Componente | Acción / Comportamiento en UI | Archivo |
+| Tipo de Fallo | Origen Técnico | Comportamiento en UI | Metadatos Capturados |
 | :--- | :--- | :--- | :--- |
-| Enviar sin completar obligatorias (`obligatory === '1'`) | `WrongError = true` | Despliega modal (Overlay) central: "Tiene preguntas obligatorias sin responder". | `FormComponent.jsx` |
-| Fallo general al cargar el formulario (`loadForm`) | Estado `error` | Reemplaza la UI por: `<div className="error"><p>Error: {error}</p> <button>Reintentar</button></div>` | `FormComponent.jsx` |
-| Límite de texto no cumplido | `minChars` / `maxChars` | Muestra el recuento en rojo. | `little_text.jsx` |
+| **Render Crash** | `ErrorBoundary.jsx` | Bloqueo total. Muestra **Modal Rojo** con ID de error. | Stack Trace, Componente, Ruta, IP, Email, Device Info. |
+| **JS/Logic Crash** | `window.onerror` | **Toast Negro** (4s): "Algo ha fallado en segundo plano". | Línea, Columna, Archivo, Parámetros URL, Estado Red. |
+| **Promise Reject** | `unhandledrejection`| **Toast Negro**. Captura fallos de red o promesas no controladas. | Razón del rechazo, URL actual, IP, User Agent. |
+| **API Fatal** | `api_functions.js` | El sistema registra el error 5xx antes de lanzar la excepción. | Endpoint, Payload keys, HTTP Status, Raw Response. |
 
-### 2.2 Respuestas de la API al Guardar
-| Estado API / Excepción | Método | Acción / Comportamiento en UI | Archivo |
-| :--- | :--- | :--- | :--- |
-| **400** | `sendFinishForm` | Lanza alerta nativa (`alert()`): "Error: El servidor no pudo procesar la solicitud. Contacta con soporte." | `FormComponent.jsx` |
-| **Error Genérico / Red** | `sendFinishForm` | Lanza alerta nativa (`alert()`): "Error de conexión. Inténtalo de nuevo." | `FormComponent.jsx` |
-| **401** / `Unauthorized` | `checkTokenMissing` | Interceptado a nivel componente. Fuerza redirección a `/login`. | `FormComponent.jsx` / `FormPage.jsx` |
+### 🛡️ Mecanismos de Protección
+* **Deduplicación (Anti-Spam):** Si un error con la misma firma ocurre en menos de **30 segundos**, el sistema lo silencia para evitar saturar la base de datos.
+* **Seguridad de Datos:** Se registran las llaves (`keys`) del payload enviado pero **nunca los valores** sensibles (ej. se sabe que se envió un "password", pero no su contenido).
+* **Identificación Única:** Cada reporte genera un `error_id` (Ej: `ERR-A1B2-C3D4`) vinculable en la base de datos.
 
 ---
 
-## 3. Experiencia Onorato Farm (IA, 3D y Media)
+## 2. Autenticación y Registro (Auth & Cognito)
+**Rutas:** `/login`, `/register`, `/verify/:code`, `/recover`
 
-**Rutas Principales:** `/onoratoFarm/*`
-**Componentes:** `ModelOnorato3D.jsx`, `ThirdPage.jsx`, `FourPage.jsx`
-
-### 3.1 Errores de Inteligencia Artificial (OpenAI / TTS)
-| Estado API | Método / Excepción | Comportamiento UI | Componente |
-| :--- | :--- | :--- | :--- |
-| **500** | `errorLLM` / Fallo en `get_response` | Muestra un texto indicando: "Hubo un error al obtener la respuesta de Onorato..." y permite reintentar el fetch. | `ThirdPage.jsx` |
-
-### 3.2 Errores de Hardware, Media y WebGL
-| Origen | Clave | Comportamiento / Causa | Componente |
-| :--- | :--- | :--- | :--- |
-| **API Web** | `unsupported_browser` | La API de MediaRecorder falla (Navegador antiguo/sin soporte). Muestra modal de aviso. | `FourPage.jsx` |
-| **API Web** | `microphone_permission_denied` | El usuario rechaza los permisos o iOS los bloquea. Muestra instrucciones para activar el micro en ajustes. | `FourPage.jsx` |
-| **Local** | `empty_text_error` | Intento de enviar audio/texto vacío. Bloquea y pide escribir/hablar algo. | `FourPage.jsx` |
-| **Motor 3D** | `Canvas / WebGL` | Si `Onorato3D.glb` falla al cargar, el componente `<Suspense>` lo maneja y se detiene (No hay render explícito de error, simplemente queda colgado el fallback). | `ModelOnorato3D.jsx` / `FormPage.jsx` |
-
----
-
-## 4. Red Global y Excepciones Base
-
-Centralizado en el contenedor global de peticiones.
-
-**Archivo:** `functions/api_functions.js`
-
-| Código de Estado HTTP | Tipo de Error Inyectado | Consecuencia en el Frontend |
+### 2.1 Validaciones Locales (UX Preventiva)
+| Causa | Clave de Error | Comportamiento UI |
 | :--- | :--- | :--- |
-| **0** (Sin Red) | `NetworkError` | Falla el bloque `fetch` por falta de internet o rechazo CORS. Lanza un throw procesado como "Error de conexión". |
-| **401** | `Unauthorized` | Ejecuta limpieza: `removeToken()`. Genera evento global o en su defecto los componentes lo atrapan y ejecutan `Maps('/login')`. |
-| **Respuestas No-JSON**| `ParseError` | Si el servidor devuelve un 502/504 en HTML, la app evita crashear y empaqueta el texto como un `Error(errorMessage)` estructurado. |
+| Campos vacíos | `emptyFields` | "Los campos están vacíos". Bloquea el submit. |
+| Email inválido | `invalidEmail` | "El formato del correo no es correcto". |
+| Password mismatch| `passwordsDoNotMatch`| "Las contraseñas no coinciden". |
+| Requisitos PWD | `passwordMinLength` | Check visual (9+ chars, Mayús, Minús, Núm). |
+| Nombre incompleto | `nameRequired` | "Debes incluir al menos nombre y primer apellido". |
+
+### 2.2 Respuestas de API (Manejadas)
+| Status | Error Backend | Reacción Frontend |
+| :--- | :--- | :--- |
+| **404** | `Email does not exist` | Mensaje rojo + Redirección automática a `/register`. |
+| **403** | `accountNotVerified` | Abre Modal de verificación + Inicio de Polling. |
+| **401** | `incorrectPassword` | "Contraseña incorrecta para este usuario". |
+| **409** | `user exists` | "Este email ya está registrado". Redirige al login. |
+
+---
+
+## 3. Formularios Dinámicos y Onboarding
+**Rutas:** `/form`
+
+| Causa | Componente | Acción UI |
+| :--- | :--- | :--- |
+| Preguntas obligatorias | `WrongError` | Modal Overlay: "Tiene preguntas obligatorias sin responder". |
+| Fallo Carga Form | `loadForm` (Catch) | Muestra botón de "Reintentar" en lugar del formulario. |
+| Texto insuficiente | `minChars` | Contador dinámico en rojo bajo el input. |
+| Sesión Expirada | `401 Unauthorized` | Ejecuta `removeToken()` y redirige a `/login`. |
+
+---
+
+## 4. Onorato Farm (IA y Multimedia)
+**Rutas:** `/onoratoFarm`
+
+### 4.1 Inteligencia Artificial y Audio
+| Origen | Error | Comportamiento UI |
+| :--- | :--- | :--- |
+| **LLM / OpenAI** | Error 500 | "Hubo un error al obtener la respuesta de Onorato..." + Retry. |
+| **Micrófono** | Permission Denied | Instrucciones visuales para activar micro en ajustes. |
+| **Browser** | Unsupported | Modal: "Tu navegador no soporta grabación de audio". |
+
+---
+
+## 5. Glosario de Identificadores en Base de Datos
+Cada log en la tabla `frontend_errors` se categoriza bajo estos tipos:
+
+1.  **`RENDER_CRASH`**: Fallo fatal de la interfaz de React.
+2.  **`JS_CRASH`**: Error de ejecución en scripts globales.
+3.  **`PROMISE_CRASH`**: Fallo en operaciones asíncronas no controladas.
+4.  **`API_CRITICAL_ERROR`**: Respuesta 5xx del servidor (Fallo backend).
+5.  **`API_BUSINESS_WARNING`**: Errores 4xx (Lógica de negocio: 404, 400).
+6.  **`API_401_WARNING`**: Sesión expirada o token inválido.

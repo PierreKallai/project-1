@@ -66,3 +66,11 @@
 - [ ] **Frontend:** Añadir parámetro `"category"` al payload de la API de preguntas.
 - [ ] **Data:** Ejecutar script Lambda para migrar los perfiles actuales de S3 a la estructura de diccionario por categorías.
 - [ ] **QA:** Monitorizar logs de AWS SES las primeras 48h tras el despliegue para descartar falsos positivos de `AppError`.
+
+
+⚠️ Único recordatorio para tu equipo Frontend:
+Para que todo este backend nuevo brille, asegúrate de que desde React están enviando correctamente estos dos parámetros en el JSON del fetch:
+
+number_version (en las llamadas a S3 para no duplicar).
+
+category (en la llamada a la IA para inyectar solo el contexto que toca: salud, familia, etc.).

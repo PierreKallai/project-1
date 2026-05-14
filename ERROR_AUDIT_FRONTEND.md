@@ -266,19 +266,3 @@ Resultado de `rg -n "catch\\s*\\(|\\.catch\\(" admin_frontend-1`.
 | Formatos backend mixtos | Frontends reciben `message`, `error`, `solution`, `error_code`, `status`, segun ruta. |
 | Endpoints desalineados | Algunos wrappers llaman rutas no registradas y convierten problemas de contrato en errores de usuario. |
 | Catch silencioso | Varios `.catch(() => {})` evitan recursion/log spam, pero pueden ocultar fallos reales de audio/logging. |
-
-## Recomendaciones para la siguiente fase
-
-No se ha escrito codigo en esta fase. Cuando se actualicen catches:
-
-- Crear una matriz comun de errores frontend: `NETWORK`, `AUTH`, `VALIDATION`, `API_4XX`, `API_5XX`, `PARSE`, `MEDIA`, `AUDIO`, `RENDER`, `UNKNOWN`.
-- Publico: mantener `reportErrorToAdmin`, pero evitar reportar como `ERROR` los 400/401/403/404 esperados.
-- Admin: decidir si se añade telemetria igual que publico o si se dispara `api_global_error` desde el wrapper.
-- Separar canal: `email_dev` solo si cumple la politica critica; `admin_panel` para todo lo informativo.
-- Añadir cooldown/dedupe antes de cualquier email dev basado en errores frontend.
-- Corregir primero endpoints desalineados; si no, los catches ocultaran errores reales de contrato.
-- En cada catch local, guardar contexto util: pantalla, accion, endpoint/wrapper, payload keys, user/session/version, browser media support.
-- Diferenciar errores recuperables de errores bloqueantes: retry/backoff para red/audio/IA; mensaje claro para validacion.
-- Revisar todos los `.catch(() => {})` y documentar cuales deben seguir silenciosos.
-- Evitar que errores de logging generen nuevos errores de logging.
-- Hacer paridad de mensajes entre `es/translation.json` y `en/translation.json` si se muestran nuevos errores.

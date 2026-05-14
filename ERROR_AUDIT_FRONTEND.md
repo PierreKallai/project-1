@@ -79,6 +79,75 @@ Comparado contra `Api_Onorato/API/app.py`.
 
 Estos son errores funcionales de API aunque no siempre aparezcan como excepcion JS: acaban en `404 NOT_FOUND`, redireccion o UI sin datos.
 
+## Politica de alertas por email desde errores frontend
+
+Objetivo: que el frontend ayude a detectar caidas reales sin convertir errores normales de usuario/navegador en spam para devs.
+
+Regla principal:
+
+- Email dev: solo si el error frontend demuestra una caida critica o bug bloqueante repetido: pantalla blanca, crash global repetido, API 5xx sostenida, auth global rota, formulario no enviable, OnoratoFarm inutilizable por proveedor, admin panel inaccesible o soporte/tickets no funcional.
+- Admin panel: todo lo demas. Los errores de usuario, validacion, permisos, 401 esperados, 404 conocidos, autoplay bloqueado, permisos de micro denegados y fallos aislados deben quedar en logs visibles para revisar cuando se quiera.
+
+Reglas anti-spam:
+
+- No enviar email desde cada `reportErrorToAdmin`; el backend debe decidir el canal.
+- Dedupe por `file_name + function_name + error_message + route`.
+- Cooldown minimo recomendado: 15 minutos por firma critica.
+- Promocionar a email solo si ocurre en varias sesiones/usuarios o bloquea una accion critica.
+- Los errores `WARN` nunca mandan email individual.
+
+## Errores frontend que si deben enviar email inmediato
+
+| Area | Condicion concreta | Archivos relacionados | Motivo |
+|---|---|---|---|
+| Crash global repetido | `window.onerror` o `onunhandledrejection` se repite en la misma ruta para varios usuarios | `src/main.jsx`, `error_show.jsx` | Posible pantalla blanca o bug deploy |
+| ErrorBoundary bloqueante | Render crash en rutas principales (`/form`, `/onoratoFarm`, `/admin/*`) sin recuperacion | `error_show.jsx`, `App.jsx` | Usuario no puede continuar |
+| API 5xx sostenida | Wrapper recibe 500/503/502 en endpoints criticos despues de retry | `functions/api_functions.js` | Backend/proveedor caido |
+| Auth global rota | Muchos 401/refresh fallidos en usuarios con sesion valida | `api_functions.js`, `App.jsx` | Puede bloquear a todos |
+| Formulario no carga | `getJsonForm`, `generateMap`, `loadForm` fallan por 5xx/contrato roto | `FormComponent.jsx`, `FormPage.jsx` | Bloquea onboarding principal |
+| Formulario no se envia | `sendFinishForm` falla por 5xx, S3/DB o respuesta corrupta | `FormComponent.jsx` | Riesgo de perdida de respuestas |
+| OnoratoFarm no inicia | No carga preguntas/audios por 5xx/S3/IA tras fallback | `OnoratoFarm.jsx` | Feature principal bloqueada |
+| IA/TTS/STT caidos | `getResponse`, `getVoice`, `transcriptionService` fallan por proveedor tras reintentos | `ThirdPage.jsx`, `FourPage.jsx` | Charla inutilizable |
+| Admin inaccesible | Login admin correcto no puede entrar por 5xx/auth global | `AdminLogin.jsx`, admin `api_functions.js` | Operacion interna bloqueada |
+| Gestion usuarios rota | Carga usuarios, invitaciones o borrado falla por 5xx/contrato | `UserManager.jsx` | Admin no puede operar |
+| Tickets/soporte roto | Crear ticket o gestionar tickets falla por endpoint/DB 5xx | `ReportPage.jsx`, `TicketManager.jsx` | Soporte queda inutilizable |
+| Dataset admin no guarda | `saveDatasetConversation` falla por 5xx/S3 | `DatasetManager.jsx` | Riesgo de perdida de trabajo admin |
+| Telemetria rota | `/logs/frontend_error` falla sistematicamente o tabla backend ausente | `error_logger.js`, `DeveloperLogs.jsx` | No se ven errores reales |
+
+## Errores frontend informativos solo para admin panel
+
+| Area | Ejemplos | Motivo para no enviar email |
+|---|---|---|
+| Login incorrecto | Password mal, codigo email incorrecto, cuenta no confirmada | Esperado por usuario |
+| Sesion expirada | 401 por token caducado o refresh ausente | Flujo normal; redirigir |
+| Validacion frontend | Campos vacios, email invalido, password debil, formulario incompleto | Input del usuario |
+| 404 conocido | Wrappers historicos desalineados o ruta inexistente conocida | Backlog, no alerta repetitiva |
+| Permisos admin | Usuario sin permiso o no admin | Regla de negocio |
+| Red del usuario | Offline, `Failed to fetch`, DNS local, VPN, navegador bloquea request | No accionable salvo volumen |
+| LocalStorage corrupto | JSON usuario invalido, token malformado aislado | Limpiar sesion; admin-only |
+| Audio local | Micro denegado, MediaRecorder no soportado, blob muy pequeno, autoplay bloqueado | Depende del dispositivo/permiso |
+| Parse de pregunta | Valor checkbox/date/select corrupto pero recuperable | Bug menor/dato aislado |
+| Resize/layout | Errores de medicion en inputs/radio/select | UX menor |
+| i18n | Key ausente o fallback idioma | No critico salvo pantalla rota |
+| Dataset IA aislado | Una respuesta IA vacia recuperada por retry | Revisable sin email |
+| Logs UI | ErrorTerminal no refresca una vez | Admin puede reintentar |
+| `reportErrorToAdmin` falla | Fallo aislado al enviar log | Evitar recursion; email solo si sistemico desde backend |
+
+## Mapeo recomendado por nivel frontend
+
+| Nivel/campo | Canal recomendado | Condicion |
+|---|---|---|
+| `WARN` | Admin panel | Siempre, sin email individual |
+| `ERROR` en 4xx | Admin panel | Usuario/validacion/auth esperada |
+| `ERROR` en 5xx | Email solo si endpoint critico o repetido | Admin panel si aislado |
+| `JS_CRASH` | Email si repetido o ruta critica | Admin panel si aislado |
+| `PROMISE_CRASH` | Email si repetido o sin fallback | Admin panel si aislado |
+| `RENDER_CRASH` | Email si bloquea ruta principal | Admin panel si componente secundario |
+| `API_FATAL_CRASH` | Email si backend devuelve HTML/no JSON en endpoint critico | Admin panel si endpoint no critico |
+| `API_BUSINESS_WARNING` | Admin panel | Nunca email |
+| `API_CRITICAL_ERROR` | Email si 5xx real y no duplicado | Requiere cooldown |
+| `MEDIA/AUDIO` | Admin panel por defecto | Email solo si proveedor STT/TTS cae para muchos usuarios |
+
 ## Inventario de catches: frontend publico
 
 Resultado de `rg -n "catch\\s*\\(|\\.catch\\(" form_frontend-2`.
@@ -205,6 +274,8 @@ No se ha escrito codigo en esta fase. Cuando se actualicen catches:
 - Crear una matriz comun de errores frontend: `NETWORK`, `AUTH`, `VALIDATION`, `API_4XX`, `API_5XX`, `PARSE`, `MEDIA`, `AUDIO`, `RENDER`, `UNKNOWN`.
 - Publico: mantener `reportErrorToAdmin`, pero evitar reportar como `ERROR` los 400/401/403/404 esperados.
 - Admin: decidir si se añade telemetria igual que publico o si se dispara `api_global_error` desde el wrapper.
+- Separar canal: `email_dev` solo si cumple la politica critica; `admin_panel` para todo lo informativo.
+- Añadir cooldown/dedupe antes de cualquier email dev basado en errores frontend.
 - Corregir primero endpoints desalineados; si no, los catches ocultaran errores reales de contrato.
 - En cada catch local, guardar contexto util: pantalla, accion, endpoint/wrapper, payload keys, user/session/version, browser media support.
 - Diferenciar errores recuperables de errores bloqueantes: retry/backoff para red/audio/IA; mensaje claro para validacion.

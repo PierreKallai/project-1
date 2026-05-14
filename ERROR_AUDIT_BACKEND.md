@@ -100,6 +100,107 @@ Estos errores pueden romper la API completa o una feature principal.
 | Respuesta externa no JSON | Wrappers o rutas que hacen `json.loads` fallan |
 | Errores silenciosos en cleanup | Cursores/conexiones pueden ocultar fallos en `finally` |
 
+## Politica de alertas por email
+
+Objetivo: evitar spam al equipo dev. Solo deben enviar email los errores que requieren intervencion inmediata o indican que una parte critica del sistema esta caida. Todo lo demas debe registrarse para revision en el admin panel.
+
+Regla principal:
+
+- Enviar email: errores `CRITICAL` que bloquean una feature principal, rompen infraestructura, pueden perder datos, afectan pagos, seguridad, autenticacion global, storage, DB, IA/audio central o impiden observar errores.
+- No enviar email: errores esperados de usuario, validaciones 4xx, datos incompletos, codigos incorrectos, cuentas no confirmadas, recursos no encontrados, rutas antiguas, permisos denegados normales, errores recuperables, errores repetidos y fallos parciales no bloqueantes.
+
+Reglas anti-spam obligatorias para la siguiente fase:
+
+- Dedupe por firma: `error_code + endpoint + provider + normalized_message`.
+- Cooldown minimo recomendado: 15 minutos por firma critica.
+- Escalado por volumen: un 4xx nunca envia email individual; si hay un pico anomalo, se muestra agregado en admin.
+- Un fallo de proveedor externo envia email solo si afecta una operacion critica o supera reintentos.
+- Los errores de frontend reportados al backend no deben disparar email por defecto; solo los crashes globales repetidos o errores que indiquen caida real de API.
+
+## Errores que si deben enviar email inmediato al equipo dev
+
+| Categoria | Condicion concreta | Codigos/archivos relacionados | Motivo |
+|---|---|---|---|
+| API no arranca | ImportError, dependencias faltantes, fallo inicial que impide levantar Flask/Gunicorn | `API/app.py` | Servicio completo caido |
+| DB inaccesible | Credenciales invalidas, host caido, timeout, database missing | `db_connection.py`, `GENERIC_ERROR`, `DB_TABLE_MISSING` | Bloquea login, formulario, admin y chats |
+| Tabla critica ausente | Tablas de usuarios, respuestas, finish form, logs, tickets, roles o permisos no existen | `DB_TABLE_MISSING` | Error de esquema/deploy que requiere accion |
+| Corrupcion o fallo de escritura DB | Commit falla despues de operacion de negocio critica | rutas de registro, formulario, pago, tickets | Riesgo de datos inconsistentes |
+| Secrets/AWS config rota | Secret no existe, JSON secreto invalido, credenciales AWS denegadas | `secrets_manager.py`, `INTERNAL_AWS_ERROR` | Rompe DB, Cognito, S3, SES o Stripe |
+| Cognito/JWKS caido | No se puede obtener JWKS o Cognito rechaza operaciones masivamente | `require_auth_hybrid.py`, `refresh_token.py`, `INTERNAL_AWS_ERROR` | Usuarios no pueden autenticarse |
+| Auth global inconsistente | Token valido no se puede validar para muchos usuarios, issuer/audience/kid roto | `require_auth_hybrid.py` | Bloquea todas las rutas protegidas |
+| S3 critico caido | Bucket principal inaccesible, AccessDenied, NoCredentials, escritura/lectura de formulario/feedback falla | `buckets.py`, `S3_ERROR` | Puede bloquear formulario, IA y feedback |
+| JSON S3 critico corrupto | Datos de formulario, feedback o dataset no parseables y sin fallback seguro | `buckets.py`, `admin/dataset/*.py` | Riesgo de perdida/bloqueo de datos |
+| SES sistema caido | Credenciales/region/quota/config fallan de forma sistemica | `SES_EMAIL_ERROR`, `notifyer.py`, `reminders.py`, `recover_password.py` | Recovery, invitaciones y alertas no salen |
+| Alertas dev no se pueden enviar | `notifyer.py` falla al notificar un error critico | `FIX_ACTION_FAILED`, `notifyer.py` | Se pierde observabilidad critica |
+| Stripe falla | Payment intent, webhook, secret o firma/config falla fuera de errores esperados del cliente | `STRIPE_ERROR`, `stripe/*.py` | Impacto directo en pagos |
+| Webhook Stripe no procesa evento valido | Firma valida pero DB/invitacion post-pago falla | `stripe/webhook.py` | Pago confirmado pero onboarding puede no crearse |
+| IA principal falla | OpenAI/Nextbit caido, API key invalida, rate limit sostenido, respuesta no usable tras reintentos | `AI_ERROR`, `get_voice.py`, `reply_ai.py`, `OnoratoFarm/*` | Bloquea charla/dataset |
+| TTS/STT proveedor falla | TTS/STT no disponible tras reintentos, no por audio invalido de usuario | `VOICE_GENERATION_ERROR`, `transcription.py` | Bloquea OnoratoFarm |
+| Cron recordatorios rompe en lote | Ejecucion aborta, canal no soportado, AWS channel config rota, DB events inaccesible | `API/cron/cron_emails.py`, `cron_issue_logger.py` | Usuarios dejan de recibir recordatorios |
+| Tickets no se guardan | Error DB al crear ticket o responder | `TICKET_DB_ERROR` | Soporte queda inutilizable |
+| Logs frontend/backend no se guardan | Tabla logs ausente o escritura falla de forma sistemica | `frontend_logs.py`, `logs_view.py` | Se pierde trazabilidad |
+| Error no clasificado 500 repetido | `GENERIC_ERROR` en endpoint critico, repetido o con stack no esperado | `error_handler.py` | Potencial bug de produccion |
+| Seguridad/admin | Bypass, acceso admin indebido, fallo validando admin por error interno | `require_admin.py`, roles/permisos | Riesgo de seguridad |
+
+## Errores informativos solo para admin panel
+
+Estos errores se deben registrar, agrupar y mostrar en el panel admin, pero no deben enviar email individual.
+
+| Categoria | Ejemplos | Motivo para no enviar email |
+|---|---|---|
+| Validacion de usuario | `MISSING_FIELDS`, email invalido, password debil, codigo invalido | Son errores esperados de input |
+| Auth esperada | Token ausente/expirado, login incorrecto, cuenta no confirmada | Flujo normal de sesion/usuario |
+| Limites de usuario | `LIMIT_EXCEEDED`, `TOO_MANY_ATTEMPTS` por usuario concreto | Puede ser normal; agregar si hay pico |
+| Recurso inexistente | `USER_NOT_FOUND`, `TICKET_NOT_FOUND`, `NO_INVITATION`, 404 ruta | No requiere accion inmediata salvo volumen |
+| Permisos denegados | Usuario no admin o sin permiso | Evento de negocio/seguridad informativo |
+| Parametros invalidos | `INVALID_PARAMETER` por payload malo | Hoy tiene `notify_dev`; deberia ser admin-only salvo config rota |
+| Audio invalido de usuario | `AUDIO_TOO_LARGE`, base64 corrupto, extension no soportada | El usuario puede corregir/reintentar |
+| Feedback no disponible | `FEEDBACK_ACCESS_DENIED`, charla aun no habilitada | Regla de negocio esperada |
+| Datos vacios | Sin stats, sin invitaciones, sin dataset todavia | Estado normal al inicio |
+| SES por email individual | Email no verificado, address reject para un destinatario | Registrar destinatario; email dev solo si es sistemico |
+| S3 key opcional ausente | Audio/frase/feedback opcional no existe y hay fallback | No bloquea el servicio |
+| IA respuesta mala aislada | Respuesta vacia/no JSON una vez, recuperada por retry/fallback | No requiere despertar dev |
+| Cron fallo parcial | Uno o pocos usuarios fallan pero el lote continua | Admin puede revisar pendientes |
+| Endpoints historicos desalineados | Wrappers antiguos que generan 404 conocidos | Corregir en backlog; no alertar cada request |
+| Logging de frontend WARN | Layout, parse localStorage, autoplay bloqueado, resize | Ruido de navegador/UX |
+
+## Mapeo recomendado de AppError a canal
+
+| Codigo | Canal recomendado | Nota |
+|---|---|---|
+| `AUTH_FAILED` | Admin panel | Email solo si hay pico global o validacion Cognito/JWKS rota |
+| `USER_NOT_FOUND` | Admin panel | Informativo |
+| `USER_NOT_CONFIRMED` | Admin panel | Informativo |
+| `USER_EXISTS_CLOUD` | Admin panel | Informativo |
+| `INVALID_CODE` | Admin panel | Informativo |
+| `EXPIRED_CODE` | Admin panel | Informativo |
+| `LIMIT_EXCEEDED` | Admin panel agregado | Email solo si afecta a muchos usuarios o proveedor bloquea globalmente |
+| `TOO_MANY_ATTEMPTS` | Admin panel agregado | Posible abuso; email solo por volumen/anomalia |
+| `WEAK_PASSWORD` | Admin panel | Informativo |
+| `NEW_PASSWORD_REQUIRED` | Admin panel | Informativo |
+| `PASSWORD_RESET_REQUIRED` | Admin panel | Informativo |
+| `INVALID_PARAMETER` | Admin panel | Cambiar de `notify_dev` general a email solo en configuracion critica |
+| `USER_LAMBDA_ERROR` | Email inmediato | Critico AWS/Cognito |
+| `INTERNAL_AWS_ERROR` | Email inmediato | Critico si afecta provider/config |
+| `MISSING_FIELDS` | Admin panel | Informativo |
+| `AUDIO_TOO_LARGE` | Admin panel | Informativo |
+| `INVALID_EMAIL` | Admin panel | Informativo |
+| `NO_INVITATION` | Admin panel | Informativo |
+| `FEEDBACK_ACCESS_DENIED` | Admin panel | Informativo |
+| `USER_EXISTS_LOCAL` | Admin panel | Informativo |
+| `STRIPE_ERROR` | Email inmediato | Pago critico |
+| `INVALID_PAYMENT_DATA` | Admin panel | Informativo |
+| `QUANTITY_EXCEEDED` | Admin panel | Informativo |
+| `DUPLICATE_PURCHASE` | Admin panel | Informativo |
+| `AI_ERROR` | Email inmediato si supera retry | Admin panel si es aislado y recuperado |
+| `VOICE_GENERATION_ERROR` | Email inmediato si proveedor/servicio falla | Admin panel si es input/audio concreto |
+| `S3_ERROR` | Email inmediato | Critico si afecta bucket principal |
+| `TICKET_DB_ERROR` | Email inmediato | Soporte no puede guardar |
+| `TICKET_NOT_FOUND` | Admin panel | Informativo |
+| `SES_EMAIL_ERROR` | Email inmediato si sistemico | Admin panel si solo falla un destinatario |
+| `DB_TABLE_MISSING` | Email inmediato | Esquema roto |
+| `GENERIC_ERROR` | Email inmediato solo en 500 real/repetido | Admin panel si esta clasificado como no bloqueante |
+
 ## Inventario de try/except backend
 
 Resultado de `rg -n "except " Api_Onorato/API Api_Onorato/send_second_talk_emails.py --glob "*.py" --glob "!**/__pycache__/**"`.
@@ -259,6 +360,9 @@ No se ha escrito codigo en esta fase. Para la siguiente fase:
 
 - Convertir respuestas manuales 4xx/5xx a `AppError` donde sea backend propio.
 - Mantener excepciones de negocio 4xx como `WARNING`, no como `CRITICAL`.
+- Separar canal de notificacion: `email_dev` solo para criticos; `admin_panel` para informativos.
+- Revisar `INVALID_PARAMETER` porque hoy tiene `notify_dev` y puede spamear por payloads de usuario.
+- Revisar `GENERIC_ERROR` porque hoy notifica siempre; deberia deduplicar y distinguir endpoint critico/no critico.
 - No envolver `AppError` dentro de `Exception` generico.
 - En cada `except Exception`, registrar contexto minimo: endpoint, user_id/email si existe, payload keys, proveedor externo, operacion.
 - Para llamadas externas, separar `ClientError`, timeout, respuesta no JSON y status no 2xx.
